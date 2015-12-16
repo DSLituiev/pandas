@@ -1449,7 +1449,7 @@ class TestSparseDataFrame(tm.TestCase, test_frame.SafeForSparse):
             [[1, 2, 3], [4, 5, 6], [7, 8, 9]], index=['a', 'a', 'c'])
         df = df_orig.to_sparse()
         rs = df.apply(lambda s: s[0], axis=1)
-        xp = Series([1., 4., 7.], ['a', 'a', 'c'])
+        xp = Series([1, 4, 7], ['a', 'a', 'c'])
         assert_series_equal(rs, xp)
 
         # df.T breaks
@@ -1677,8 +1677,8 @@ class TestSparseDataFrame(tm.TestCase, test_frame.SafeForSparse):
     def test_combine_add(self):
         df = self.frame.to_dense()
         df2 = df.copy()
-        df2['C'][:3] = np.nan
-        df['A'][:3] = 5.7
+        df2.loc['C',:3] = np.nan
+        df.loc['A',:3] = 5.7
 
         result = df.to_sparse().add(df2.to_sparse(), fill_value=0)
         expected = df.add(df2, fill_value=0).to_sparse()
