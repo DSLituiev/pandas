@@ -12,6 +12,7 @@ import pandas.core.common as com
 
 from pandas import compat, lib
 from pandas.compat import range
+from pandas.core.common import notnull
 
 from pandas._sparse import BlockIndex, IntIndex
 import pandas._sparse as splib
@@ -122,7 +123,7 @@ to sparse
 
     def __new__(
         cls, data, sparse_index=None, index=None, kind='integer', fill_value=None,
-            dtype=np.float64, copy=False):
+            dtype= None, copy=False):
 
         if index is not None:
             if data is None:
@@ -133,8 +134,6 @@ to sparse
             values.fill(data)
             data = values
 
-        if dtype is not None:
-            dtype = np.dtype(dtype)
         is_sparse_array = isinstance(data, SparseArray)
         if fill_value is None:
             if is_sparse_array:
@@ -156,6 +155,9 @@ to sparse
                     raise AssertionError("Non array-like type {0} must have"
                                          " the same length as the"
                                          " index".format(type(values)))
+        if dtype is None:
+            dtype = values.dtype
+        dtype = np.dtype(dtype)
 
         # Create array, do *not* copy data by default
         if copy:
@@ -516,7 +518,7 @@ def make_sparse(arr, kind='block', fill_value=nan):
     length = len(arr)
 
     if np.isnan(fill_value):
-        mask = ~np.isnan(arr)
+        mask = notnull(arr)
     else:
         mask = arr != fill_value
 
