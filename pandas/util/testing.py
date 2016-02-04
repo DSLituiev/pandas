@@ -1,6 +1,8 @@
 from __future__ import division
 # pylint: disable-msg=W0402
 
+# flake8: noqa
+
 import random
 import re
 import string
@@ -36,8 +38,9 @@ from pandas.compat import(
 
 from pandas.computation import expressions as expr
 
-from pandas import (bdate_range, CategoricalIndex, DatetimeIndex, TimedeltaIndex, PeriodIndex,
-                    Index, MultiIndex, Series, DataFrame, Panel, Panel4D)
+from pandas import (bdate_range, CategoricalIndex, DatetimeIndex,
+                    TimedeltaIndex, PeriodIndex, RangeIndex, Index, MultiIndex,
+                    Series, DataFrame, Panel, Panel4D)
 from pandas.util.decorators import deprecate
 from pandas import _testing
 from pandas.io.common import urlopen
@@ -249,12 +252,6 @@ def _skip_if_no_cday():
         raise nose.SkipTest("CustomBusinessDay not available.")
 
 
-def _skip_if_python26():
-    if sys.version_info[:2] == (2, 6):
-        import nose
-        raise nose.SkipTest("skipping on python2.6")
-
-
 def _skip_if_no_pathlib():
     try:
         from pathlib import Path
@@ -303,11 +300,19 @@ def skip_if_no_ne(engine='numexpr'):
                                 "%s" % ne.__version__)
 
 
+def _skip_if_has_locale():
+    import locale
+    lang, _ = locale.getlocale()
+    if lang is not None:
+        import nose
+        raise nose.SkipTest("Specific locale is set {0}".format(lang))
 
-#------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # locale utilities
 
-def check_output(*popenargs, **kwargs):  # shamelessly taken from Python 2.7 source
+
+def check_output(*popenargs, **kwargs):
+    # shamelessly taken from Python 2.7 source
     r"""Run command with arguments and return its output as a byte string.
 
     If the exit code was non-zero it raises a CalledProcessError.  The
@@ -597,19 +602,22 @@ def assert_equal(a, b, msg=""):
         ...
     AssertionError: 5.2 was really a dead parrot: 5.2 != 1.2
     """
-    assert a == b, "%s: %r != %r" % (msg.format(a,b), a, b)
+    assert a == b, "%s: %r != %r" % (msg.format(a, b), a, b)
 
 
-def assert_index_equal(left, right, exact=False, check_names=True,
-                       check_less_precise=False, check_exact=True, obj='Index'):
+def assert_index_equal(left, right, exact='equiv', check_names=True,
+                       check_less_precise=False, check_exact=True,
+                       obj='Index'):
     """Check that left and right Index are equal.
 
     Parameters
     ----------
     left : Index
     right : Index
-    exact : bool, default False
-        Whether to check the Index class, dtype and inferred_type are identical.
+    exact : bool / string {'equiv'}, default False
+        Whether to check the Index class, dtype and inferred_type
+        are identical. If 'equiv', then RangeIndex can be substitued for
+        Int64Index as well
     check_names : bool, default True
         Whether to check the names attribute.
     check_less_precise : bool, default False
@@ -624,9 +632,19 @@ def assert_index_equal(left, right, exact=False, check_names=True,
 
     def _check_types(l, r, obj='Index'):
         if exact:
-            if type(l) != type(r):
-                msg = '{0} classes are different'.format(obj)
-                raise_assert_detail(obj, msg, l, r)
+
+            if exact == 'equiv':
+                if type(l) != type(r):
+                    # allow equivalence of Int64Index/RangeIndex
+                    types = set([type(l).__name__, type(r).__name__])
+                    if len(types - set(['Int64Index', 'RangeIndex'])):
+                        msg = '{0} classes are not equivalent'.format(obj)
+                        raise_assert_detail(obj, msg, l, r)
+            else:
+                if type(l) != type(r):
+                    msg = '{0} classes are different'.format(obj)
+                    raise_assert_detail(obj, msg, l, r)
+
             assert_attr_equal('dtype', l, r, obj=obj)
 
             # allow string-like to have different inferred_types
@@ -640,7 +658,8 @@ def assert_index_equal(left, right, exact=False, check_names=True,
         unique = index.levels[level]
         labels = index.labels[level]
         filled = take_1d(unique.values, labels, fill_value=unique._na_value)
-        values = unique._simple_new(filled, index.names[level],
+        values = unique._simple_new(filled,
+                                    name=index.names[level],
                                     freq=getattr(unique, 'freq', None),
                                     tz=getattr(unique, 'tz', None))
         return values
@@ -650,7 +669,7 @@ def assert_index_equal(left, right, exact=False, check_names=True,
     assertIsInstance(right, Index, '[index] ')
 
     # class / dtype comparison
-    _check_types(left, right)
+    _check_types(left, right, obj=obj)
 
     # level comparison
     if left.nlevels != right.nlevels:
@@ -874,7 +893,7 @@ def assert_numpy_array_equal(left, right,
 
 # This could be refactored to use the NDFrame.equals method
 def assert_series_equal(left, right, check_dtype=True,
-                        check_index_type=True,
+                        check_index_type='equiv',
                         check_series_type=True,
                         check_less_precise=False,
                         check_names=True,
@@ -890,8 +909,9 @@ def assert_series_equal(left, right, check_dtype=True,
     right : Series
     check_dtype : bool, default True
         Whether to check the Series dtype is identical.
-    check_index_type : bool, default False
-        Whether to check the Index class, dtype and inferred_type are identical.
+    check_index_type : bool / string {'equiv'}, default False
+        Whether to check the Index class, dtype and inferred_type
+        are identical.
     check_series_type : bool, default False
         Whether to check the Series class is identical.
     check_less_precise : bool, default False
@@ -956,14 +976,15 @@ def assert_series_equal(left, right, check_dtype=True,
 
 # This could be refactored to use the NDFrame.equals method
 def assert_frame_equal(left, right, check_dtype=True,
-                       check_index_type=True,
-                       check_column_type=True,
+                       check_index_type='equiv',
+                       check_column_type='equiv',
                        check_frame_type=True,
                        check_less_precise=False,
                        check_names=True,
                        by_blocks=False,
                        check_exact=False,
                        check_datetimelike_compat=False,
+                       check_like=False,
                        obj='DataFrame'):
 
     """Check that left and right DataFrame are equal.
@@ -974,10 +995,12 @@ def assert_frame_equal(left, right, check_dtype=True,
     right : DataFrame
     check_dtype : bool, default True
         Whether to check the DataFrame dtype is identical.
-    check_index_type : bool, default False
-        Whether to check the Index class, dtype and inferred_type are identical.
-    check_column_type : bool, default False
-        Whether to check the columns class, dtype and inferred_type are identical.
+    check_index_type : bool / string {'equiv'}, default False
+        Whether to check the Index class, dtype and inferred_type
+        are identical.
+    check_column_type : bool / string {'equiv'}, default False
+        Whether to check the columns class, dtype and inferred_type
+        are identical.
     check_frame_type : bool, default False
         Whether to check the DataFrame class is identical.
     check_less_precise : bool, default False
@@ -992,6 +1015,8 @@ def assert_frame_equal(left, right, check_dtype=True,
         Whether to compare number exactly.
     check_dateteimelike_compat : bool, default False
         Compare datetime-like which is comparable ignoring dtype.
+    check_like : bool, default False
+        If true, then reindex_like operands
     obj : str, default 'DataFrame'
         Specify object name being compared, internally used to show appropriate
         assertion message
@@ -1004,16 +1029,24 @@ def assert_frame_equal(left, right, check_dtype=True,
     if check_frame_type:
         assertIsInstance(left, type(right))
 
+    if check_like:
+        left, right = left.reindex_like(right), right
+
     # shape comparison (row)
     if left.shape[0] != right.shape[0]:
-        raise_assert_detail(obj, 'DataFrame shape (number of rows) are different',
+        raise_assert_detail(obj,
+                            'DataFrame shape (number of rows) are different',
                             '{0}, {1}'.format(left.shape[0], left.index),
                             '{0}, {1}'.format(right.shape[0], right.index))
     # shape comparison (columns)
     if left.shape[1] != right.shape[1]:
-        raise_assert_detail(obj, 'DataFrame shape (number of columns) are different',
-                            '{0}, {1}'.format(left.shape[1], left.columns),
-                            '{0}, {1}'.format(right.shape[1], right.columns))
+        raise_assert_detail(obj,
+                            'DataFrame shape (number of columns) '
+                            'are different',
+                            '{0}, {1}'.format(left.shape[1],
+                                              left.columns),
+                            '{0}, {1}'.format(right.shape[1],
+                                              right.columns))
 
     # index comparison
     assert_index_equal(left.index, right.index, exact=check_index_type,
@@ -1104,6 +1137,7 @@ def assert_copy(iter1, iter2, **eql_kwargs):
 def getCols(k):
     return string.ascii_uppercase[:k]
 
+
 def getArangeMat():
     return np.arange(N * K).reshape((N, K))
 
@@ -1116,37 +1150,49 @@ def makeStringIndex(k=10, name=None):
 def makeUnicodeIndex(k=10, name=None):
     return Index(randu_array(nchars=10, size=k))
 
+
 def makeCategoricalIndex(k=10, n=3, name=None):
     """ make a length k index or n categories """
     x = rands_array(nchars=4, size=n)
-    return CategoricalIndex(np.random.choice(x,k), name=name)
+    return CategoricalIndex(np.random.choice(x, k), name=name)
+
 
 def makeBoolIndex(k=10, name=None):
     if k == 1:
         return Index([True], name=name)
     elif k == 2:
-        return Index([False,True], name=name)
-    return Index([False,True] + [False]*(k-2), name=name)
+        return Index([False, True], name=name)
+    return Index([False, True] + [False] * (k - 2), name=name)
+
 
 def makeIntIndex(k=10, name=None):
     return Index(lrange(k), name=name)
 
+
+def makeRangeIndex(k=10, name=None):
+    return RangeIndex(0, k, 1, name=name)
+
+
 def makeFloatIndex(k=10, name=None):
     values = sorted(np.random.random_sample(k)) - np.random.random_sample(1)
     return Index(values * (10 ** np.random.randint(0, 9)), name=name)
+
 
 def makeDateIndex(k=10, freq='B', name=None):
     dt = datetime(2000, 1, 1)
     dr = bdate_range(dt, periods=k, freq=freq, name=name)
     return DatetimeIndex(dr, name=name)
 
+
 def makeTimedeltaIndex(k=10, freq='D', name=None):
     return TimedeltaIndex(start='1 day', periods=k, freq=freq, name=name)
+
 
 def makePeriodIndex(k=10, name=None):
     dt = datetime(2000, 1, 1)
     dr = PeriodIndex(start=dt, periods=k, freq='B', name=name)
     return dr
+
 
 def all_index_generator(k=10):
     """Generator which can be iterated over to get instances of all the various
@@ -1162,6 +1208,7 @@ def all_index_generator(k=10):
                             makeCategoricalIndex]
     for make_index_func in all_make_index_funcs:
         yield make_index_func(k=k)
+
 
 def all_timeseries_index_generator(k=10):
     """Generator which can be iterated over to get instances of all the classes

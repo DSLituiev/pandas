@@ -87,7 +87,7 @@ They can take a number of arguments:
     on. With ``sep=None``, ``read_csv`` will try to infer the delimiter
     automatically in some cases by "sniffing".
     The separator may be specified as a regular expression; for instance
-    you may use '\|\\s*' to indicate a pipe plus arbitrary whitespace.
+    you may use '\|\\s*' to indicate a pipe plus arbitrary whitespace, but ignores quotes in the data when a regex is used in separator.
   - ``delim_whitespace``: Parse whitespace-delimited (spaces or tabs) file
     (much faster than using a regular expression)
   - ``compression``: decompress ``'gzip'`` and ``'bz2'`` formats on the fly.
@@ -3741,8 +3741,13 @@ SQL Queries
 
 The :mod:`pandas.io.sql` module provides a collection of query wrappers to both
 facilitate data retrieval and to reduce dependency on DB-specific API. Database abstraction
-is provided by SQLAlchemy if installed, in addition you will need a driver library for
-your database.
+is provided by SQLAlchemy if installed. In addition you will need a driver library for
+your database. Examples of such drivers are `psycopg2 <http://initd.org/psycopg/>`__
+for PostgreSQL or `pymysql <https://github.com/PyMySQL/PyMySQL>`__ for MySQL.
+For `SQLite <https://docs.python.org/3.5/library/sqlite3.html>`__ this is
+included in Python's standard library by default.
+You can find an overview of supported drivers for each SQL dialect in the
+`SQLAlchemy docs <http://docs.sqlalchemy.org/en/latest/dialects/index.html>`__.
 
 .. versionadded:: 0.14.0
 
@@ -3780,7 +3785,7 @@ To connect with SQLAlchemy you use the :func:`create_engine` function to create 
 object from database URI. You only need to create the engine once per database you are
 connecting to.
 For more information on :func:`create_engine` and the URI formatting, see the examples
-below and the SQLAlchemy `documentation <http://docs.sqlalchemy.org/en/rel_0_9/core/engines.html>`__
+below and the SQLAlchemy `documentation <http://docs.sqlalchemy.org/en/latest/core/engines.html>`__
 
 .. ipython:: python
 
@@ -3994,7 +3999,7 @@ connecting to.
    # or absolute, starting with a slash:
    engine = create_engine('sqlite:////absolute/path/to/foo.db')
 
-For more information see the examples the SQLAlchemy `documentation <http://docs.sqlalchemy.org/en/rel_0_9/core/engines.html>`__
+For more information see the examples the SQLAlchemy `documentation <http://docs.sqlalchemy.org/en/latest/core/engines.html>`__
 
 
 Advanced SQLAlchemy queries
@@ -4088,6 +4093,34 @@ The key functions are:
 
 .. _io.bigquery_reader:
 
+
+Authentication
+''''''''''''''
+
+Authentication is possible with either user account credentials or service account credentials.
+
+Authenticating with user account credentials is as simple as following the prompts in a browser window
+which will be automatically opened for you. You will be authenticated to the specified
+``BigQuery`` account via Google's ``Oauth2`` mechanism. Additional information on the
+authentication mechanism can be found `here <https://developers.google.com/identity/protocols/OAuth2#clientside/>`__.
+
+Authentication with service account credentials is possible via the `'private_key'` parameter. This method
+is particularly useful when working on remote servers (eg. jupyter iPython notebook on remote host).
+The remote authentication using user account credentials is not currently supported in Pandas.
+Additional information on service accounts can be found
+`here <https://developers.google.com/identity/protocols/OAuth2#serviceaccount>`__.
+
+.. note::
+
+   The `'private_key'` parameter can be set to either the file path of the service account key
+   in JSON format, or key contents of the service account key in JSON format.
+
+.. note::
+
+   A private key can be obtained from the Google developers console by clicking
+   `here <https://console.developers.google.com/permissions/serviceaccounts>`__. Use JSON key type.
+
+
 Querying
 ''''''''
 
@@ -4102,12 +4135,6 @@ into a DataFrame using the :func:`~pandas.io.gbq.read_gbq` function.
 
    data_frame = pd.read_gbq('SELECT * FROM test_dataset.test_table', projectid)
 
-You will then be authenticated to the specified BigQuery account
-via Google's Oauth2 mechanism. In general, this is as simple as following the
-prompts in a browser window which will be opened for you. Should the browser not
-be available, or fail to launch, a code will be provided to complete the process
-manually.  Additional information on the authentication mechanism can be found
-`here <https://developers.google.com/accounts/docs/OAuth2#clientside/>`__.
 
 You can define which column from BigQuery to use as an index in the
 destination DataFrame as well as a preferred column order as follows:
@@ -4120,7 +4147,7 @@ destination DataFrame as well as a preferred column order as follows:
 
 .. note::
 
-   You can find your project id in the `BigQuery management console <https://code.google.com/apis/console/b/0/?noredirect>`__.
+   You can find your project id in the `Google developers console <https://console.developers.google.com>`__.
 
 
 .. note::
@@ -4128,6 +4155,7 @@ destination DataFrame as well as a preferred column order as follows:
    You can toggle the verbose output via the ``verbose`` flag which defaults to ``True``.
 
 .. _io.bigquery_writer:
+
 
 Writing DataFrames
 ''''''''''''''''''

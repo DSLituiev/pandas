@@ -178,9 +178,7 @@ CLASSIFIERS = [
     'Programming Language :: Python',
     'Programming Language :: Python :: 2',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 2.6',
     'Programming Language :: Python :: 2.7',
-    'Programming Language :: Python :: 3.3',
     'Programming Language :: Python :: 3.4',
     'Programming Language :: Python :: 3.5',
     'Programming Language :: Cython',
@@ -292,7 +290,7 @@ class CheckSDist(sdist_class):
 class CheckingBuildExt(build_ext):
     """
     Subclass build_ext to get clearer report if Cython is necessary.
-    Also, add some platform based compiler flags.
+
     """
 
     def check_cython_extensions(self, extensions):
@@ -306,26 +304,7 @@ class CheckingBuildExt(build_ext):
 
     def build_extensions(self):
         self.check_cython_extensions(self.extensions)
-        self.add_gnu_inline_flag(self.extensions)
         build_ext.build_extensions(self)
-
-    def add_gnu_inline_flag(self, extensions):
-        '''
-        Add CFLAGS `-fgnu89-inline` for clang on FreeBSD 10+
-        '''
-        if not platform.system() == 'FreeBSD':
-            return
-
-        try:
-            bsd_release = float(platform.release().split('-')[0])
-        except ValueError:  # unknow freebsd version
-            return
-
-        if bsd_release < 10:  # 9 or earlier still using gcc42
-            return
-
-        for ext in extensions:
-            ext.extra_compile_args += ['-fgnu89-inline']
 
 
 class CythonCommand(build_ext):
@@ -546,6 +525,7 @@ setup(name=DISTNAME,
                 'pandas.computation',
                 'pandas.computation.tests',
                 'pandas.core',
+                'pandas.indexes',
                 'pandas.io',
                 'pandas.rpy',
                 'pandas.sandbox',
@@ -554,6 +534,9 @@ setup(name=DISTNAME,
                 'pandas.stats',
                 'pandas.util',
                 'pandas.tests',
+                'pandas.tests.frame',
+                'pandas.tests.indexes',
+                'pandas.tests.series',
                 'pandas.tests.test_msgpack',
                 'pandas.tools',
                 'pandas.tools.tests',
@@ -581,6 +564,7 @@ setup(name=DISTNAME,
                     'pandas.tools': ['tests/*.csv'],
                     'pandas.tests': ['data/*.pickle',
                                      'data/*.csv'],
+                    'pandas.tests.indexes': ['data/*.pickle'],
                     'pandas.tseries.tests': ['data/*.pickle',
                                              'data/*.csv']
                     },

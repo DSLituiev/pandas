@@ -17,8 +17,9 @@ from cpython cimport (
     PyLong_Check,
     PyObject_RichCompareBool,
     PyObject_RichCompare,
-    PyString_Check,
-    Py_GT, Py_GE, Py_EQ, Py_NE, Py_LT, Py_LE
+    Py_GT, Py_GE, Py_EQ, Py_NE, Py_LT, Py_LE,
+    PyUnicode_Check,
+    PyUnicode_AsUTF8String,
 )
 
 # Cython < 0.17 doesn't have this in cpython
@@ -31,10 +32,9 @@ cdef extern from "datetime_helper.h":
 
 # this is our datetime.pxd
 from datetime cimport cmp_pandas_datetimestruct
-from util cimport is_integer_object, is_float_object, is_datetime64_object, is_timedelta64_object
-
 from libc.stdlib cimport free
 
+from util cimport is_integer_object, is_float_object, is_datetime64_object, is_timedelta64_object
 cimport util
 
 from datetime cimport *
@@ -361,14 +361,8 @@ class Timestamp(_Timestamp):
     def _repr_base(self):
         return '%s %s' % (self._date_repr, self._time_repr)
 
-    def round(self, freq):
-        """
-        return a new Timestamp rounded to this resolution
+    def _round(self, freq, rounder):
 
-        Parameters
-        ----------
-        freq : a freq string indicating the rouding resolution
-        """
         cdef int64_t unit
         cdef object result, value
 
@@ -378,10 +372,40 @@ class Timestamp(_Timestamp):
             value = self.tz_localize(None).value
         else:
             value = self.value
-        result = Timestamp(unit*np.floor(value/unit),unit='ns')
+        result = Timestamp(unit*rounder(value/float(unit)),unit='ns')
         if self.tz is not None:
             result = result.tz_localize(self.tz)
         return result
+
+    def round(self, freq):
+        """
+        return a new Timestamp rounded to this resolution
+
+        Parameters
+        ----------
+        freq : a freq string indicating the rounding resolution
+        """
+        return self._round(freq, np.round)
+
+    def floor(self, freq):
+        """
+        return a new Timestamp floored to this resolution
+
+        Parameters
+        ----------
+        freq : a freq string indicating the flooring resolution
+        """
+        return self._round(freq, np.floor)
+
+    def ceil(self, freq):
+        """
+        return a new Timestamp ceiled to this resolution
+
+        Parameters
+        ----------
+        freq : a freq string indicating the ceiling resolution
+        """
+        return self._round(freq, np.ceil)
 
     @property
     def tz(self):
@@ -664,6 +688,21 @@ class NaTType(_NaT):
     def total_seconds(self):
         # GH 10939
         return np.nan
+
+    def __rdiv__(self, other):
+        return _nat_rdivide_op(self, other)
+
+    def __rtruediv__(self, other):
+        return _nat_rdivide_op(self, other)
+
+    def __rfloordiv__(self, other):
+        return _nat_rdivide_op(self, other)
+
+    def __rmul__(self, other):
+        if is_integer_object(other) or is_float_object(other):
+            return NaT
+        return NotImplemented
+
 
 
 fields = ['year', 'quarter', 'month', 'day', 'hour',
@@ -1001,7 +1040,7 @@ cdef class _Timestamp(datetime):
 
         # index/series like
         elif hasattr(other, '_typ'):
-            return other + self
+            return NotImplemented
 
         result = datetime.__add__(self, other)
         if isinstance(result, datetime):
@@ -1081,6 +1120,18 @@ _nat_scalar_rules[Py_GT] = False
 _nat_scalar_rules[Py_GE] = False
 
 
+cdef _nat_divide_op(self, other):
+    if isinstance(other, (Timedelta, np.timedelta64)) or other is NaT:
+        return np.nan
+    if is_integer_object(other) or is_float_object(other):
+        return NaT
+    return NotImplemented
+
+cdef _nat_rdivide_op(self, other):
+    if isinstance(other, Timedelta):
+        return np.nan
+    return NotImplemented
+
 cdef class _NaT(_Timestamp):
 
     def __hash__(_NaT self):
@@ -1103,6 +1154,8 @@ cdef class _NaT(_Timestamp):
 
     def __add__(self, other):
         try:
+            if isinstance(other, datetime):
+                return NaT
             result = _Timestamp.__add__(self, other)
             if result is NotImplemented:
                 return result
@@ -1111,6 +1164,9 @@ cdef class _NaT(_Timestamp):
         return NaT
 
     def __sub__(self, other):
+
+        if other is NaT:
+            return NaT
 
         if type(self) is datetime:
             other, self = self, other
@@ -1121,6 +1177,26 @@ cdef class _NaT(_Timestamp):
         except (OverflowError, OutOfBoundsDatetime):
             pass
         return NaT
+
+    def __pos__(self):
+        return NaT
+
+    def __neg__(self):
+        return NaT
+
+    def __div__(self, other):
+        return _nat_divide_op(self, other)
+
+    def __truediv__(self, other):
+        return _nat_divide_op(self, other)
+
+    def __floordiv__(self, other):
+        return _nat_divide_op(self, other)
+
+    def __mul__(self, other):
+        if is_integer_object(other) or is_float_object(other):
+            return NaT
+        return NotImplemented
 
 
 def _delta_to_nanoseconds(delta):
@@ -1312,6 +1388,26 @@ cpdef convert_str_to_tsobject(object ts, object tz, object unit,
 
     return convert_to_tsobject(ts, tz, unit)
 
+def _test_parse_iso8601(object ts):
+    '''
+    TESTING ONLY: Parse string into Timestamp using iso8601 parser. Used
+    only for testing, actual construction uses `convert_str_to_tsobject`
+    '''
+    cdef:
+        _TSObject obj
+        int out_local = 0, out_tzoffset = 0
+
+    obj = _TSObject()
+
+    _string_to_dts(ts, &obj.dts, &out_local, &out_tzoffset)
+    obj.value = pandas_datetimestruct_to_datetime(PANDAS_FR_ns, &obj.dts)
+    _check_dts_bounds(&obj.dts)
+    if out_local == 1:
+        obj.tzinfo = pytz.FixedOffset(out_tzoffset)
+        obj.value = tz_convert_single(obj.value, obj.tzinfo, 'UTC')
+        return Timestamp(obj.value, tz=obj.tzinfo)
+    else:
+        return Timestamp(obj.value)
 
 cdef inline void _localize_tso(_TSObject obj, object tz):
     '''
@@ -2132,6 +2228,8 @@ cdef class _Timedelta(timedelta):
                         raise TypeError('Cannot compare type %r with type %r' %
                                         (type(self).__name__,
                                          type(other).__name__))
+                if isinstance(other, np.ndarray):
+                    return PyObject_RichCompare(np.array([self]), other, op)
                 return PyObject_RichCompare(other, self, _reverse_ops[op])
             else:
                 if op == Py_EQ:
@@ -2334,20 +2432,45 @@ class Timedelta(_Timedelta):
         else:
            return "D"
 
-    def round(self, freq):
-        """
-        return a new Timedelta rounded to this resolution
+    def _round(self, freq, rounder):
 
-        Parameters
-        ----------
-        freq : a freq string indicating the rouding resolution
-        """
         cdef int64_t result, unit
 
         from pandas.tseries.frequencies import to_offset
         unit = to_offset(freq).nanos
-        result = unit*np.floor(self.value/unit)
+        result = unit*rounder(self.value/float(unit))
         return Timedelta(result,unit='ns')
+
+    def round(self, freq):
+        """
+        return a new Timedelta rounded to this resolution.
+
+
+        Parameters
+        ----------
+        freq : a freq string indicating the rounding resolution
+        """
+        return self._round(freq, np.round)
+
+    def floor(self, freq):
+        """
+        return a new Timedelta floored to this resolution
+
+        Parameters
+        ----------
+        freq : a freq string indicating the flooring resolution
+        """
+        return self._round(freq, np.floor)
+
+    def ceil(self, freq):
+        """
+        return a new Timedelta ceiled to this resolution
+
+        Parameters
+        ----------
+        freq : a freq string indicating the ceiling resolution
+        """
+        return self._round(freq, np.ceil)
 
     def _repr_base(self, format=None):
         """
@@ -2541,8 +2664,8 @@ class Timedelta(_Timedelta):
         if other is NaT:
             return NaT
 
-        # only integers allowed
-        if not is_integer_object(other):
+        # only integers and floats allowed
+        if not (is_integer_object(other) or is_float_object(other)):
            return NotImplemented
 
         return Timedelta(other*self.value, unit='ns')
@@ -2554,8 +2677,8 @@ class Timedelta(_Timedelta):
         if hasattr(other, 'dtype'):
             return self.to_timedelta64() / other
 
-        # pure integers
-        if is_integer_object(other):
+        # integers or floats
+        if is_integer_object(other) or is_float_object(other):
            return Timedelta(self.value/other, unit='ns')
 
         if not self._validate_ops_compat(other):
@@ -2563,7 +2686,7 @@ class Timedelta(_Timedelta):
 
         other = Timedelta(other)
         if other is NaT:
-            return NaT
+            return np.nan
         return self.value/float(other.value)
 
     def __rtruediv__(self, other):
@@ -2715,7 +2838,7 @@ cdef inline parse_timedelta_string(object ts, coerce=False):
     """
 
     cdef:
-        str c
+        unicode c
         bint neg=0, have_dot=0, have_value=0, have_hhmmss=0
         object current_unit=None
         int64_t result=0, m=0, r
@@ -2728,6 +2851,10 @@ cdef inline parse_timedelta_string(object ts, coerce=False):
 
     if ts in _nat_strings or not len(ts):
         return NPY_NAT
+
+    # decode ts if necessary
+    if not PyUnicode_Check(ts) and not PY3:
+        ts = str(ts).decode('utf-8')
 
     for c in ts:
 
@@ -3426,6 +3553,10 @@ def tz_convert(ndarray[int64_t] vals, object tz1, object tz2):
     # Convert UTC to other timezone
     trans, deltas, typ = _get_dst_info(tz2)
     trans_len = len(trans)
+
+    # if all NaT, return all NaT
+    if (utc_dates==NPY_NAT).all():
+        return utc_dates
 
     # use first non-NaT element
     # if all-NaT, return all-NaT

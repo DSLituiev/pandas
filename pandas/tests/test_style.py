@@ -1,6 +1,13 @@
 import os
 from nose import SkipTest
 
+import copy
+import numpy as np
+import pandas as pd
+from pandas import DataFrame
+from pandas.util.testing import TestCase
+import pandas.util.testing as tm
+
 # this is a mess. Getting failures on a python 2.7 build with
 # whenever we try to import jinja, whether it's installed or not.
 # so we're explicitly skipping that one *before* we try to import
@@ -13,14 +20,6 @@ try:
     from pandas.core.style import Styler
 except ImportError:
     raise SkipTest("No Jinja2")
-
-import copy
-
-import numpy as np
-import pandas as pd
-from pandas import DataFrame
-from pandas.util.testing import TestCase
-import pandas.util.testing as tm
 
 
 class TestStyler(TestCase):
@@ -130,6 +129,40 @@ class TestStyler(TestCase):
         expected = {(0, 0): ['color: white']}
         self.assertEqual(result, expected)
 
+    def test_index_name(self):
+        # https://github.com/pydata/pandas/issues/11655
+        df = pd.DataFrame({'A': [1, 2], 'B': [3, 4], 'C': [5, 6]})
+        result = df.set_index('A').style._translate()
+
+        expected = [[{'class': 'blank', 'type': 'th', 'value': ''},
+                     {'class': 'col_heading level0 col0', 'type': 'th',
+                      'value': 'B'},
+                     {'class': 'col_heading level0 col1', 'type': 'th',
+                      'value': 'C'}],
+                    [{'class': 'col_heading level2 col0', 'type': 'th',
+                      'value': 'A'},
+                     {'class': 'blank', 'type': 'th', 'value': ''},
+                     {'class': 'blank', 'type': 'th', 'value': ''}]]
+
+        self.assertEqual(result['head'], expected)
+
+    def test_multiindex_name(self):
+        # https://github.com/pydata/pandas/issues/11655
+        df = pd.DataFrame({'A': [1, 2], 'B': [3, 4], 'C': [5, 6]})
+        result = df.set_index(['A', 'B']).style._translate()
+
+        expected = [[{'class': 'blank', 'type': 'th', 'value': ''},
+                     {'class': 'blank', 'type': 'th', 'value': ''},
+                     {'class': 'col_heading level0 col0', 'type': 'th',
+                      'value': 'C'}],
+                    [{'class': 'col_heading level2 col0', 'type': 'th',
+                      'value': 'A'},
+                     {'class': 'col_heading level2 col1', 'type': 'th',
+                      'value': 'B'},
+                     {'class': 'blank', 'type': 'th', 'value': ''}]]
+
+        self.assertEqual(result['head'], expected)
+
     def test_apply_axis(self):
         df = pd.DataFrame({'A': [0, 0], 'B': [1, 1]})
         f = lambda x: ['val: %s' % x.max() for v in x]
@@ -162,8 +195,8 @@ class TestStyler(TestCase):
                 expected = dict(((r, c), ['color: baz'])
                                 for r, row in enumerate(self.df.index)
                                 for c, col in enumerate(self.df.columns)
-                                if row in self.df.loc[slice_].index
-                                and col in self.df.loc[slice_].columns)
+                                if row in self.df.loc[slice_].index and
+                                col in self.df.loc[slice_].columns)
                 self.assertEqual(result, expected)
 
     def test_applymap_subset(self):
@@ -179,8 +212,8 @@ class TestStyler(TestCase):
             expected = dict(((r, c), ['foo: bar'])
                             for r, row in enumerate(self.df.index)
                             for c, col in enumerate(self.df.columns)
-                            if row in self.df.loc[slice_].index
-                            and col in self.df.loc[slice_].columns)
+                            if row in self.df.loc[slice_].index and
+                            col in self.df.loc[slice_].columns)
             self.assertEqual(result, expected)
 
     def test_empty(self):
@@ -230,39 +263,53 @@ class TestStyler(TestCase):
     def test_bar_0points(self):
         df = pd.DataFrame([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         result = df.style.bar()._compute().ctx
-        expected = {(0, 0): ['width: 10em', ' height: 80%'],
-                    (0, 1): ['width: 10em', ' height: 80%'],
-                    (0, 2): ['width: 10em', ' height: 80%'],
-                    (1, 0): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 50.0%, transparent 0%)'],
-                    (1, 1): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 50.0%, transparent 0%)'],
-                    (1, 2): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 50.0%, transparent 0%)'],
-                    (2, 0): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 100.0%, transparent 0%)'],
-                    (2, 1): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 100.0%, transparent 0%)'],
-                    (2, 2): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 100.0%, transparent 0%)']}
+        expected = {
+            (0, 0): ['width: 10em', ' height: 80%'],
+            (0, 1): ['width: 10em', ' height: 80%'],
+            (0, 2): ['width: 10em', ' height: 80%'],
+            (1, 0): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 50.0%, '
+                     'transparent 0%)'],
+            (1, 1): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 50.0%, '
+                     'transparent 0%)'],
+            (1, 2): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 50.0%, '
+                     'transparent 0%)'],
+            (2, 0): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 100.0%, '
+                     'transparent 0%)'],
+            (2, 1): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 100.0%, '
+                     'transparent 0%)'],
+            (2, 2): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 100.0%, '
+                     'transparent 0%)']}
         self.assertEqual(result, expected)
 
         result = df.style.bar(axis=1)._compute().ctx
-        expected = {(0, 0): ['width: 10em', ' height: 80%'],
-                    (0, 1): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 50.0%, transparent 0%)'],
-                    (0, 2): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 100.0%, transparent 0%)'],
-                    (1, 0): ['width: 10em', ' height: 80%'],
-                    (1, 1): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 50.0%, transparent 0%)'],
-                    (1, 2): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 100.0%, transparent 0%)'],
-                    (2, 0): ['width: 10em', ' height: 80%'],
-                    (2, 1): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 50.0%, transparent 0%)'],
-                    (2, 2): ['width: 10em', ' height: 80%',
-                             'background: linear-gradient(90deg,#d65f5f 100.0%, transparent 0%)']}
+        expected = {
+            (0, 0): ['width: 10em', ' height: 80%'],
+            (0, 1): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 50.0%, '
+                     'transparent 0%)'],
+            (0, 2): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 100.0%, '
+                     'transparent 0%)'],
+            (1, 0): ['width: 10em', ' height: 80%'],
+            (1, 1): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 50.0%, '
+                     'transparent 0%)'],
+            (1, 2): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 100.0%, '
+                     'transparent 0%)'],
+            (2, 0): ['width: 10em', ' height: 80%'],
+            (2, 1): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 50.0%, '
+                     'transparent 0%)'],
+            (2, 2): ['width: 10em', ' height: 80%',
+                     'background: linear-gradient(90deg,#d65f5f 100.0%, '
+                     'transparent 0%)']}
         self.assertEqual(result, expected)
 
     def test_highlight_null(self, null_color='red'):

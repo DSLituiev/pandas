@@ -517,7 +517,7 @@ Unlike agg, apply's callable is passed a sub-DataFrame which gives you access to
    def Red(x):
       return functools.reduce(CumRet,x,1.0)
 
-   pd.expanding_apply(S, Red)
+   S.expanding().apply(Red)
 
 
 `Replacing some values with mean of the rest of a group
@@ -567,7 +567,7 @@ Unlike agg, apply's callable is passed a sub-DataFrame which gives you access to
       return pd.NaT
 
    mhc = {'Mean' : np.mean, 'Max' : np.max, 'Custom' : MyCust}
-   ts.resample("5min",how = mhc)
+   ts.resample("5min").apply(mhc)
    ts
 
 `Create a value counts column and reassign back to the DataFrame
@@ -639,7 +639,7 @@ Create a list of dataframes, split using a delineation based on logic included i
    df = pd.DataFrame(data={'Case' : ['A','A','A','B','A','A','B','A','A'],
                            'Data' : np.random.randn(9)})
 
-   dfs = list(zip(*df.groupby(pd.rolling_median((1*(df['Case']=='B')).cumsum(),3,True))))[-1]
+   dfs = list(zip(*df.groupby((1*(df['Case']=='B')).cumsum().rolling(window=3,min_periods=1).median())))[-1]
 
    dfs[0]
    dfs[1]
@@ -726,9 +726,10 @@ Rolling Apply to multiple columns where function returns a Scalar (Volume Weight
                       'Close' : np.random.randn(len(rng)),
                       'Volume' : np.random.randint(100,2000,len(rng))}, index=rng); df
 
-   def vwap(bars): return ((bars.Close*bars.Volume).sum()/bars.Volume.sum()).round(2)
+   def vwap(bars): return ((bars.Close*bars.Volume).sum()/bars.Volume.sum())
    window = 5
-   s = pd.concat([ (pd.Series(vwap(df.iloc[i:i+window]), index=[df.index[i+window]])) for i in range(len(df)-window) ]); s
+   s = pd.concat([ (pd.Series(vwap(df.iloc[i:i+window]), index=[df.index[i+window]])) for i in range(len(df)-window) ]);
+   s.round(2)
 
 Timeseries
 ----------
